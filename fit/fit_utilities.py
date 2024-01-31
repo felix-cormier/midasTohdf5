@@ -13,6 +13,19 @@ import glob
 from lmfit.models import ExponentialGaussianModel, ConstantModel, GaussianModel
 from lmfit import minimize, Parameters, report_fit
 
+from fit.fit_functions import Gauss, DoubleGauss, TripleGauss, Convol, DoublegaussConvol, DoublegaussConvolBackground
+
+
+def objective(params, x, data, function):
+    """ calculate total residual for fits to several data sets held
+    in a 2-D array, and modeled by Gaussian functions"""
+    ndata, nx = data.shape
+    resid = 0.0*data[:]
+    # make residual per data set
+    for i in range(ndata):
+        resid[i, :] = data[i, :] - function(params, i, x)
+    # now flatten this to a 1D array, as minimize() needs
+    return resid.flatten()
 
 #Move peak to a specific time
 def move_x_to_peak(x, y, peak=100, restrict=None):
@@ -53,8 +66,7 @@ def average(x_array,y_array, common_time = 100, bunch=None, spill=None):
         temp_x_array = waveform_x
         temp_y_array = waveform_y
         if spill==5 and bunch==4:
-            print(f"temp_right_index: {temp_right_index}, temp_min_index: {temp_min_index}")
-            print(list(waveform_x))
+            pass
         if smallest_right_index > temp_right_index:
             temp_x_array = np.append(temp_x_array, np.zeros(smallest_right_index-temp_right_index))
             temp_y_array = np.append(temp_y_array, np.zeros(smallest_right_index-temp_right_index))
@@ -67,7 +79,7 @@ def average(x_array,y_array, common_time = 100, bunch=None, spill=None):
         new_y_array.append(temp_y_array)
         new_mask_array.append((new_y_array[i]!=0).astype(int))
         if spill==5 and bunch==4:
-            print(list((new_y_array[i]!=0).astype(int)))
+            pass
         i=i+1
 
     avg_y = np.zeros(len(new_y_array[0]))
@@ -77,7 +89,7 @@ def average(x_array,y_array, common_time = 100, bunch=None, spill=None):
     for new_x, new_y, new_mask in zip(new_x_array, new_y_array, new_mask_array):
         avg_y = np.add(avg_y, new_y)
         if spill==5 and bunch==4:
-            print(list(new_x))
+            pass
         avg_x = np.add(avg_x, new_x)
         sum_mask = np.add(sum_mask,new_mask)
 
@@ -221,5 +233,121 @@ def fit_waveform(function, x, y, initial_parameters, maxfev=1000, function_name=
 
     return fit_y, chi_per_dof, res, parameters
 
+def gauss_dataset(params, i, x):
+    """calc gaussian from params for data set i
+    using simple, hardwired naming convention"""
+    model = GaussianModel(prefix='f_%i_' % (i)) + ConstantModel(prefix='f_%i_' % (i))
+    return model.eval(params, x=x)
+
+def objective(params, x, data, fit_function):
+    """ calculate total residual for fits to several data sets held
+    in a 2-D array, and modeled by Gaussian functions"""
+    ndata, nx = data.shape
+    resid = 0.0*data[:]
+    # make residual per data set
+    for i in range(ndata):
+        resid[i, :] = data[i, :] - fit_function(params, i, x[i])
+    # now flatten this to a 1D array, as minimize() needs
+    return resid.flatten()
+
+def global_fit(function, x, y, maxfev=1000, function_name="Generic", parameter_names=None, verbose=True, bounds = None, add_uncertainty = True):
+
+
+    if add_uncertainty:
+        sigma = 20*np.ones(len(x))
+    else:
+        sigma = None
+
+    #parameters, covariance, info, _, __ = curve_fit(function, x, y, p0=initial_parameters, bounds=bounds, maxfev=maxfev, full_output=True, sigma = sigma)
+    if False and verbose and parameter_names is not None and len(parameter_names) == len(parameters):
+        print(f'{function_name} ', end='')
+        for i, parameter_name in enumerate(parameter_names):
+            print(f', {parameter_name}: {parameters[i]:.3f}', end='')
+        print('\n')
+
+    #Clunky but OK
+    bias=2160
+    if function == Gauss:
+        #fit_y = function(x, parameters[0], parameters[1], parameters[2], parameters[3])
+        #bias = parameters[3]
+        fit_params = Parameters()
+        for iy, temp_y in enumerate(x):
+            fit_params.add( f'f_{iy}_amplitude', value=-10000, min=-50000,  max=50000)
+            fit_params.add( f'f_{iy}_center', value=100, min=90,  max=110)
+            fit_params.add( f'f_{iy}_sigma', value=12, min=8, max=20)
+            fit_params.add( f'f_{iy}_c', value=2160, min=2000, max=2200)
+        for iy, temp_y in enumerate(x):
+            if iy == 0:
+                continue
+            fit_params['f_%i_sigma' % iy].expr='f_0_sigma'
+        # run the global fit to all the data sets
+        result = minimize(objective, fit_params, args=(x, y, Gauss))
+        report_fit(result)
+        return result
+
+
+    if function == DoubleGauss:
+        #fit_y = function(x, parameters[0], parameters[1], parameters[2], parameters[3], parameters[4], parameters[5], parameters[6])
+        #bias = parameters[6]
+        fit_params = Parameters()
+        for iy, temp_y in enumerate(x):
+            fit_params.add( f'f_{iy}_amplitude', value=-10000, min=-50000,  max=50000)
+            fit_params.add( f'f_{iy}_center', value=100, min=90,  max=110)
+            fit_params.add( f'f_{iy}_sigma', value=12, min=8, max=20)
+            fit_params.add( f'f_{iy}_dg_amplitude', value=-10000, min=-50000,  max=50000)
+            fit_params.add( f'f_{iy}_dg_center', value=100, min=50,  max=150)
+            fit_params.add( f'f_{iy}_dg_sigma', value=12, min=5, max=50)
+            fit_params.add( f'f_{iy}_c', value=2160, min=2000, max=2200)
+        for iy, temp_y in enumerate(x):
+            if iy == 0:
+                continue
+            fit_params['f_%i_sigma' % iy].expr='f_0_sigma'
+            fit_params['f_%i_dg_sigma' % iy].expr='f_0_dg_sigma'
+        # run the global fit to all the data sets
+        result = minimize(objective, fit_params, args=(x, y, DoubleGauss))
+        report_fit(result)
+        return result
+    if function == TripleGauss:
+        fit_y = function(x, parameters[0], parameters[1], parameters[2], parameters[3], parameters[4], parameters[5], parameters[6], parameters[7], parameters[8], parameters[9])
+        bias = parameters[9]
+    if function == Convol:
+        #fit_y = function(x, parameters[0], parameters[1], parameters[2], parameters[3], parameters[4], parameters[5], parameters[6])
+        #bias = parameters[6]
+        model = ExponentialGaussianModel() + ConstantModel()
+        parameters = model.make_params(amplitude={'value':-10000, 'min':-50000, 'max':50000},
+                                        center={'value':95, 'min':90, 'max':110},
+                                        c={'value':2160, 'min':2000, 'max':2200},
+                                        sigma={'value':12, 'min':8, 'max':20},
+                                        gamma={'value':0.1, 'min':0.01, 'max':1.0})
+        result = model.fit(y,parameters, x=x, max_nfev=100000)
+        fit_y = result.best_fit
+    if function == DoublegaussConvol:
+        #fit_y = function(x, parameters[0], parameters[1], parameters[2], parameters[3], parameters[4], parameters[5], parameters[6], parameters[7], parameters[8])
+        #bias = parameters[8]
+        model = ExponentialGaussianModel() + ConstantModel() + GaussianModel(prefix='dg_')
+        parameters = model.make_params(amplitude={'value':-10000, 'min':-50000, 'max':50000},
+                                        center={'value':95, 'min':90, 'max':110},
+                                        c={'value':2160, 'min':2000, 'max':2200},
+                                        sigma={'value':12, 'min':8, 'max':20},
+                                        dg_amplitude={'value':-10000, 'min':-50000, 'max':50000},
+                                        dg_center={'value':95, 'min':90, 'max':110},
+                                        dg_sigma={'value':12, 'min':8, 'max':20},
+                                        gamma={'value':0.05, 'min':0.001, 'max':1.2})
+        print(parameters)
+        result = model.fit(y,parameters, x=x, max_nfev=100000)
+        print(result.fit_report())
+        fit_y = result.best_fit
+    if function == DoublegaussConvolBackground:
+        fit_y = function(x, parameters[0], parameters[1], parameters[2], parameters[3], parameters[4], parameters[5], parameters[6])
+        bias = parameters[6]
+
+
+
+    chi_square = np.sum(np.divide(np.square(np.subtract(y,fit_y)),np.abs(np.add(np.subtract(bias,y),.1))))
+    dof = len(x) - len(parameters)
+    chi_per_dof = chi_square/dof
+    res=0
+
+    return fit_y, chi_per_dof, res, parameters
 
 

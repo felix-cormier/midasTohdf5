@@ -1,11 +1,18 @@
 import numpy as np
 
+from lmfit.models import ExponentialGaussianModel, ConstantModel, GaussianModel
 
-def Gauss(x, a, x0, sigma,bias):
-    return bias+(a/sigma)*np.exp(-(x-x0)**2/(2*sigma**2))
+def Gauss(params, i, x):
+    """calc gaussian from params for data set i
+    using simple, hardwired naming convention"""
+    model = GaussianModel(prefix='f_%i_' % (i)) + ConstantModel(prefix='f_%i_' % (i))
+    return model.eval(params, x=x)
 
-def DoubleGauss(x, a, x0, sigma0, b,x1, sigma1,bias):
-    return bias+(a/sigma0)*np.exp(-(x-x0)**2/(2*sigma0**2))+(b/sigma1)*np.exp(-(x-x1)**2/(2*sigma1**2))
+def DoubleGauss(params, i, x):
+    """calc gaussian from params for data set i
+    using simple, hardwired naming convention"""
+    model = GaussianModel(prefix='f_%i_' % (i)) + GaussianModel(prefix='f_%i_dg_' % (i)) + ConstantModel(prefix='f_%i_' % (i))
+    return model.eval(params, x=x)
 
 def TripleGauss(x, a, x0, sigma0, b,x1, sigma1, c, x2, sigma2, bias):
     return bias+a*np.exp(-(x-x0)**2/(2*sigma0**2))+b*np.exp(-(x-x1)**2/(2*sigma1**2))+c*np.exp(-(x-x2)**2/(2*sigma2**2))
